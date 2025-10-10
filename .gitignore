@@ -1,0 +1,8 @@
+#ignore data and result files
+data/
+models/
+results/
+__pycache__/
+*.pyc
+tamper_env/
+resnet-18-imagenet*/
