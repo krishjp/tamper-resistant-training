@@ -88,7 +88,7 @@ The project is split into two main scripts: one for training and one for evaluat
 Run the `tamper_hardening.py` script to begin adversarial training. The script will fine-tune the ResNet-18 model and save the final hardened version to a local directory (e.g., `./resnet-18-imagenet-hardened/final`).
 
 ```bash
-python tamper_hardening.py
+python {selected_model}/tamper_hardening.py
 ```
 
 **2. Evaluate Model Performance**
@@ -96,7 +96,7 @@ python tamper_hardening.py
 After training is complete, run the `eval.py` script. This will load both the original and your newly hardened model, perform clean and adversarial evaluations on both, and print the final performance summary table.
 
 ```bash
-python eval.py
+python {selected_model}/eval.py
 ```
 
 -----
@@ -105,8 +105,11 @@ python eval.py
 
 ```
 .
-├── tamper_hardening.py    # Main script for adversarial training
-├── eval.py                # Script to evaluate and compare models
+├── resnet18-imagenet/
+│   └── tamper_hardening.py # Main script for adversarial training
+│   └── eval.py # Script to evaluate and compare models
+├── {selected_model}/    
+│   └── similar structure as resnet18 
 ├── utils/
 │   └── loader.py          # Utility for loading ImageNet splits
 └── requirements.txt       # Project dependencies
