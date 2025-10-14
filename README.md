@@ -1,20 +1,18 @@
------
-
-# Adversarial Hardening of ResNet-18 🛡️
+# Adversarial Hardening of ResNet-18
 
 This project demonstrates how to improve the robustness of a ResNet-18 image classification model against adversarial attacks. The technique used is **adversarial training**, where the model is intentionally trained on examples that have been slightly perturbed to fool it. This repository provides scripts to both train a hardened model and evaluate its performance against the original.
 
-The training and evaluation are performed on a subset of the ImageNet dataset and are optimized to run on Intel Arc GPUs (XPU).
-
------
+The training and evaluation are performed on two different datasets: a **subset of ImageNet** and **CIFAR-100**.
 
 ## Performance Summary
 
-The primary goal of adversarial hardening is not necessarily to have the highest possible accuracy, but to **reduce the drop in accuracy** when the model is under attack. The results below clearly show that while the original model's performance collapses, the hardened model maintains significantly better performance.
+The primary goal of adversarial hardening is to **reduce the drop in accuracy** when the model is under attack. The results below show a consistent pattern across both datasets: while the original model's performance collapses under an adversarial attack, the hardened model maintains significantly better performance.
+
+### ImageNet (Subset)
 
 ```
 ==============================
-      PERFORMANCE SUMMARY
+  PERFORMANCE SUMMARY (IMAGENET)
 ==============================
 Original Model (Clean):       70.15%
 Original Model (Attacked):    14.66%  <-- (A 55.49% drop)
@@ -24,15 +22,27 @@ Hardened Model (Attacked):    29.27%  <-- (Only a 25.20% drop)
 ==============================
 ```
 
+### CIFAR-100
+
+```
+==============================
+  PERFORMANCE SUMMARY (CIFAR-100)
+==============================
+Original Model (Clean):       69.79%
+Original Model (Attacked):     9.73%  <-- (A 60.06% drop)
+------------------------------
+Hardened Model (Clean):       66.41%
+Hardened Model (Attacked):    15.25%  <-- (A 51.16% drop)
+==============================
+```
+
+-----
+
 ### Analysis of Results
 
-  - **Improved Robustness**: The hardened model is **over 2x more accurate** than the original model when subjected to an FGSM attack (29.27% vs 14.66%), proving the training was successful.
-  - **Accuracy-Robustness Trade-off**: It's common for adversarially trained models to have slightly lower accuracy on clean, un-attacked data. This is a known trade-off where the model sacrifices some generalization on normal data to gain resilience against attacks.
-  - **Potential for Improvement**: As you noted, these results were achieved by training on a small subset of the data (approx. 8,000 adversarial points). The performance of the hardened model could be significantly improved by:
-      - Training on a much larger dataset.
-      - Retraining on a folded dataset containing both clean and adverse data.
-      - Training for more epochs.
-      - Tuning hyperparameters like the attack strength (`epsilon`) and learning rate.
+  * **Improved Robustness**: In both experiments, the hardened model is significantly more accurate than the original when attacked. On the ImageNet subset, it's **over 2x more accurate** (29.27% vs 14.66%), and on CIFAR-100, it's **over 1.5x more accurate** (15.25% vs 9.73%). This proves the training was successful.
+  * **Accuracy-Robustness Trade-off**: A common trade-off is observed in both cases, where the hardened models have slightly lower accuracy on clean, un-attacked data. The models sacrifice some generalization on normal data to gain resilience against attacks.
+  * **Potential for Improvement**: The performance of the hardened models could be further improved by training for more epochs, using more advanced attack methods for training (e.g., PGD), and tuning hyperparameters like the attack strength (`epsilon`) and learning rate.
 
 -----
 
@@ -61,56 +71,70 @@ First, create a `requirements.txt` file with the following contents:
 **`requirements.txt`**
 
 ```
-transformers
+torch
+torchvision
+torchaudio
+timm
 datasets
 tqdm
-accelerate
+safetensors
 ```
 
-Now, install the dependencies, including the Intel-optimized version of PyTorch.
+Now, install the dependencies.
 
 ```bash
-# Install PyTorch for Intel GPU
-pip install torch torchvision torchaudio --extra-index-url https://pytorch-extension.intel.com/release-whl/stable/xpu/
-
-# Install the rest of the packages
 pip install -r requirements.txt
 ```
 
 -----
 
-## 🚀 Usage
+## Usage
 
-The project is split into two main scripts: one for training and one for evaluation.
+The project is split into directories for each dataset. Choose the one you wish to work with.
 
-**1. Train the Hardened Model**
+**1. Train a Hardened Model**
 
-Run the `tamper_hardening.py` script to begin adversarial training. The script will fine-tune the ResNet-18 model and save the final hardened version to a local directory (e.g., `./resnet-18-imagenet-hardened/final`).
+Run the appropriate training script to begin adversarial fine-tuning. This will save the final hardened version to a local directory.
+
+*For CIFAR-100:*
 
 ```bash
-python {selected_model}/tamper_hardening.py
+python resnet18-cifar100/tamper_harden_resnet_cifar100.py
+```
+
+*For ImageNet:*
+
+```bash
+python resnet18-imagenet/tamper_hardening.py
 ```
 
 **2. Evaluate Model Performance**
 
-After training is complete, run the `eval.py` script. This will load both the original and your newly hardened model, perform clean and adversarial evaluations on both, and print the final performance summary table.
+After training, run the corresponding evaluation script. It will load the original and hardened models, perform clean and adversarial evaluations, and print the final performance table.
+
+*For CIFAR-100:*
 
 ```bash
-python {selected_model}/eval.py
+python resnet18-cifar100/eval.py
+```
+
+*For ImageNet:*
+
+```bash
+python resnet18-imagenet/eval.py
 ```
 
 -----
 
-## 📂 Project Structure
+## Project Structure
 
 ```
 .
+├── resnet18-cifar100/
+│   ├── tamper_harden_resnet_cifar100.py  # Training script for CIFAR-100
+│   └── eval.py                           # Evaluation script for CIFAR-100
 ├── resnet18-imagenet/
-│   └── tamper_hardening.py # Main script for adversarial training
-│   └── eval.py # Script to evaluate and compare models
-├── {selected_model}/    
-│   └── similar structure as resnet18 
-├── utils/
-│   └── loader.py          # Utility for loading ImageNet splits
-└── requirements.txt       # Project dependencies
+│   ├── tamper_hardening.py               # Training script for ImageNet
+│   └── eval.py                           # Evaluation script for ImageNet
+└── requirements.txt                      # Project dependencies
 ```

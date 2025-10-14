@@ -6,6 +6,8 @@ import torchvision.models as models
 from datasets import load_dataset
 from torch.utils.data import DataLoader
 from tqdm.auto import tqdm
+import timm
+import detectors
 
 
 CIFAR100_MEAN = [0.5071, 0.4867, 0.4408]
@@ -57,7 +59,7 @@ def tamper_harden_resnet_cifar100(output_dir='./resnet-18-cifar100-hardened', ep
     device = 'mps' if torch.backends.mps.is_available() else ('cuda' if torch.cuda.is_available() else 'cpu')
     print('Using device', device)
 
-    # build CIFAR-style resnet18
+    """# build CIFAR-style resnet18
     model = models.resnet18()
     model.conv1 = torch.nn.Conv2d(3, 64, kernel_size=3, stride=1, padding=1, bias=False)
     model.maxpool = torch.nn.Identity()
@@ -73,6 +75,12 @@ def tamper_harden_resnet_cifar100(output_dir='./resnet-18-cifar100-hardened', ep
             print('Loaded converted HF weights (partial allowed).')
         except Exception as e:
             print('Failed to load converted HF weights:', e)
+    """
+
+    print("Loading pre-trained ResNet-18 for CIFAR-100 from timm...")
+    model = timm.create_model("resnet18_cifar100", pretrained=True)
+    
+    model = model.to(device)
 
     # dataset
     ds = load_dataset('cifar100')
@@ -135,4 +143,4 @@ def tamper_harden_resnet_cifar100(output_dir='./resnet-18-cifar100-hardened', ep
 
 
 if __name__ == '__main__':
-    tamper_harden_resnet_cifar100(epochs=3, batch_size=128, lr=0.1)
+    tamper_harden_resnet_cifar100(epochs=5, batch_size=128, lr=1e-4)
