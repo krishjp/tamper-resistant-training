@@ -102,7 +102,7 @@ def main():
     acc_hard_adv = evaluate_model(hardened_model, val_dataloader, attack_fn=generate_adversarial_examples)
 
     print("\n" + "="*30)
-    print("      PERFORMANCE SUMMARY")
+    print("PERFORMANCE SUMMARY (IMAGENET)")
     print("="*30)
     print(f"Original Model (Clean):\t{acc_orig_clean:.2f}%")
     print(f"Original Model (Attacked):\t{acc_orig_adv:.2f}%")

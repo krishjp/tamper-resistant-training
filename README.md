@@ -12,13 +12,13 @@ The primary goal of adversarial hardening is to **reduce the drop in accuracy** 
 
 ```
 ==============================
-  PERFORMANCE SUMMARY (IMAGENET)
+PERFORMANCE SUMMARY (IMAGENET)
 ==============================
 Original Model (Clean):       70.15%
-Original Model (Attacked):    14.66%  <-- (A 55.49% drop)
+Original Model (Attacked):    14.66%  <-- (55.49% drop)
 ------------------------------
 Hardened Model (Clean):       54.47%
-Hardened Model (Attacked):    29.27%  <-- (Only a 25.20% drop)
+Hardened Model (Attacked):    29.27%  <-- (25.20% drop)
 ==============================
 ```
 
@@ -26,7 +26,7 @@ Hardened Model (Attacked):    29.27%  <-- (Only a 25.20% drop)
 
 ```
 ==============================
-  PERFORMANCE SUMMARY (CIFAR-100)
+PERFORMANCE SUMMARY (CIFAR-100)
 ==============================
 Original Model (Clean):       69.79%
 Original Model (Attacked):     9.73%  <-- (60.06% drop)
@@ -40,13 +40,13 @@ Hardened Model (Attacked):    15.25%  <-- (51.16% drop)
 
 ```
 ==============================
- PERFORMANCE SUMMARY (CIFAR-100)
+PERFORMANCE SUMMARY (CIFAR-100)
 ==============================
-Original Model (Clean):      88.79%
-Original Model (Attacked):   25.58%  <-- (63.21% drop)
+Original Model (Clean):      94.51%
+Original Model (Attacked):   27.58%  <-- (66.93% drop)
 ------------------------------
-Hardened Model (Clean):      86.84%
-Hardened Model (Attacked):   37.64%  <-- (49.20% drop)
+Hardened Model (Clean):      92.09%
+Hardened Model (Attacked):   45.24%  <-- (46.85% drop)
 ==============================
 ```
 -----
@@ -59,7 +59,7 @@ Hardened Model (Attacked):   37.64%  <-- (49.20% drop)
 
 -----
 
-## 🛠️ Setup and Installation
+## Setup and Installation
 
 Follow these steps to set up the environment and run the project.
 

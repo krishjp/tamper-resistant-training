@@ -5,6 +5,8 @@ from datasets import load_dataset
 from tqdm.auto import tqdm
 import torchvision.transforms as T
 import torchvision.models as tv_models
+from huggingface_hub import hf_hub_download
+import os
 
 ORIGINAL_MODEL_NAME = "edadaltocg/resnet18_cifar100"
 HARDENED_MODEL_PATH = "./resnet-18-cifar100-hardened/final"
@@ -121,146 +123,140 @@ def evaluate_model(model, dataloader, attack_fn=None):
 
     return 100 * correct / total
 
+def convert_and_save_hf_checkpoint_totorchvision(model_id_or_path, out_path="converted_resnet18_cifar100.pth"):
+    # helper to convert HF checkpoint into a stable torchvision CIFAR resnet state_dict
+    print(f"Converting checkpoint {model_id_or_path} -> {out_path}")
+    if os.path.isdir(model_id_or_path):
+        candidate = None
+        for fname in ['pytorch_model.bin', 'model.safetensors', 'pytorch_model.pt']:
+            p = os.path.join(model_id_or_path, fname)
+            if os.path.exists(p):
+                candidate = p
+                break
+        if candidate is None:
+            raise FileNotFoundError(f"No checkpoint file found in {model_id_or_path}")
+        ckpt_path = candidate
+    else:
+        ckpt_path = hf_hub_download(repo_id=model_id_or_path, filename='pytorch_model.bin')
+
+    # load checkpoint safely; try safetensors first if available
+    sd = None
+    try:
+        from safetensors.torch import load_file as st_load
+        if ckpt_path.endswith('.safetensors'):
+            sd = st_load(ckpt_path)
+    except Exception:
+        pass
+
+    if sd is None:
+        # normal torch load; allow the user to run in trusted env
+        sd = torch.load(ckpt_path, map_location='cpu')
+    # unwrap if wrapped
+    if 'state_dict' in sd:
+        sd = sd['state_dict']
+
+    # build torchvision resnet18 CIFAR variant
+    tv_resnet = tv_models.resnet18()
+    tv_resnet.conv1 = torch.nn.Conv2d(3, 64, kernel_size=3, stride=1, padding=1, bias=False)
+    tv_resnet.maxpool = torch.nn.Identity()
+    tv_resnet.fc = torch.nn.Linear(tv_resnet.fc.in_features, 100)
+
+    # Decide architecture depending on checkpoint conv1 kernel shape
+    ckpt_conv = None
+    if 'conv1.weight' in sd:
+        w = sd['conv1.weight']
+        if hasattr(w, 'shape'):
+            ckpt_conv = tuple(w.shape)
+
+    # If checkpoint has 3x3 conv, build CIFAR small-stem; if 7x7, build default resnet and adapt stride/pool
+    if ckpt_conv == (64, 3, 3, 3):
+        # build CIFAR-style resnet
+        tv_resnet = tv_models.resnet18()
+        tv_resnet.conv1 = torch.nn.Conv2d(3, 64, kernel_size=3, stride=1, padding=1, bias=False)
+        tv_resnet.maxpool = torch.nn.Identity()
+        tv_resnet.fc = torch.nn.Linear(tv_resnet.fc.in_features, 100)
+        try:
+            tv_resnet.load_state_dict(sd, strict=False)
+        except Exception as e:
+            print('Warning: partial load into CIFAR resnet18:', e)
+    else:
+        # default resnet (7x7 conv1 expected) - load weights then adapt stride/pool for 32x32 inputs
+        tv_resnet = tv_models.resnet18()
+        tv_resnet.fc = torch.nn.Linear(tv_resnet.fc.in_features, 100)
+        try:
+            tv_resnet.load_state_dict(sd, strict=False)
+        except Exception as e:
+            print('Warning: partial load into default resnet18:', e)
+        # adapt conv1 stride to 1 and remove maxpool so the network works on 32x32
+        try:
+            old_w = tv_resnet.conv1.weight.data.clone()
+            # create new conv with stride=1 but same kernel size
+            k = tv_resnet.conv1.kernel_size
+            p = tv_resnet.conv1.padding
+            tv_resnet.conv1 = torch.nn.Conv2d(3, 64, kernel_size=k, stride=1, padding=p, bias=False)
+            # copy weights (if shapes match)
+            if tv_resnet.conv1.weight.data.shape == old_w.shape:
+                tv_resnet.conv1.weight.data.copy_(old_w)
+            tv_resnet.maxpool = torch.nn.Identity()
+        except Exception as e:
+            print('Failed to adapt conv1 stride/pool for small inputs:', e)
+
+    # save converted weights
+    torch.save(tv_resnet.state_dict(), out_path)
+    print(f'Converted checkpoint saved to {out_path}')
+    return out_path
+
+def load_model_with_fallback(model_id_or_path):
+    import os
+    import torch as torch
+    print(f"Loading model (preferring converted torchvision): {model_id_or_path}")
+
+    # derive a safe converted filename per model path/id
+    base_name = os.path.basename(model_id_or_path.rstrip('/')).replace('.', '_')
+    converted_path = os.path.join(os.path.dirname(__file__), f"converted_{base_name}.pth")
+
+    if not os.path.exists(converted_path):
+        try:
+            convert_and_save_hf_checkpoint_totorchvision(model_id_or_path, out_path=converted_path)
+        except Exception as e:
+            print('Conversion failed:', e)
+
+    # try loading the converted torchvision checkpoint
+    if os.path.exists(converted_path):
+        try:
+            tv_resnet = tv_models.resnet18()
+            tv_resnet.conv1 = torch.nn.Conv2d(3, 64, kernel_size=3, stride=1, padding=1, bias=False)
+            tv_resnet.maxpool = torch.nn.Identity()
+            tv_resnet.fc = torch.nn.Linear(tv_resnet.fc.in_features, 100)
+            sd = torch.load(converted_path, map_location='cpu')
+            tv_resnet.load_state_dict(sd, strict=False)
+
+            class TorchvisionWrapper(torch.nn.Module):
+                def __init__(self, tv_model):
+                    super().__init__()
+                    self.tv = tv_model
+
+                def forward(self, x):
+                    logits = self.tv(x)
+                    from types import SimpleNamespace
+                    return SimpleNamespace(logits=logits)
+
+            model = TorchvisionWrapper(tv_resnet).to(DEVICE)
+            print('Loaded converted torchvision model from', converted_path)
+            return model
+        except Exception as e:
+            print('Failed to load converted torchvision model:', e)
+
+    # fallback: try HF AutoModel loader
+    try:
+        model = AutoModelForImageClassification.from_pretrained(model_id_or_path, ignore_mismatched_sizes=True).to(DEVICE)
+        return model
+    except Exception as e:
+        raise RuntimeError(f'Failed to load model via converted checkpoint and AutoModel: {e}')
+
 
 def main():
     print(f"Using device: {DEVICE}")
-    # helper to convert HF checkpoint into a stable torchvision CIFAR resnet state_dict
-    def convert_and_save_hf_checkpoint_to_torchvision(model_id_or_path, out_path="converted_resnet18_cifar100.pth"):
-        import os
-        import torch as _torch
-        from huggingface_hub import hf_hub_download
-
-        print(f"Converting checkpoint {model_id_or_path} -> {out_path}")
-        # download or locate checkpoint
-        if os.path.isdir(model_id_or_path):
-            # look for common names
-            candidate = None
-            for fname in ['pytorch_model.bin', 'model.safetensors', 'pytorch_model.pt']:
-                p = os.path.join(model_id_or_path, fname)
-                if os.path.exists(p):
-                    candidate = p
-                    break
-            if candidate is None:
-                raise FileNotFoundError(f"No checkpoint file found in {model_id_or_path}")
-            ckpt_path = candidate
-        else:
-            ckpt_path = hf_hub_download(repo_id=model_id_or_path, filename='pytorch_model.bin')
-
-        # load checkpoint safely; try safetensors first if available
-        sd = None
-        try:
-            from safetensors.torch import load_file as st_load
-            if ckpt_path.endswith('.safetensors'):
-                sd = st_load(ckpt_path)
-        except Exception:
-            pass
-
-        if sd is None:
-            # normal torch load; allow the user to run in trusted env
-            sd = _torch.load(ckpt_path, map_location='cpu')
-        # unwrap if wrapped
-        if 'state_dict' in sd:
-            sd = sd['state_dict']
-
-        # build torchvision resnet18 CIFAR variant
-        tv_resnet = tv_models.resnet18()
-        tv_resnet.conv1 = _torch.nn.Conv2d(3, 64, kernel_size=3, stride=1, padding=1, bias=False)
-        tv_resnet.maxpool = _torch.nn.Identity()
-        tv_resnet.fc = _torch.nn.Linear(tv_resnet.fc.in_features, 100)
-
-        # Decide architecture depending on checkpoint conv1 kernel shape
-        ckpt_conv = None
-        if 'conv1.weight' in sd:
-            w = sd['conv1.weight']
-            if hasattr(w, 'shape'):
-                ckpt_conv = tuple(w.shape)
-
-        # If checkpoint has 3x3 conv, build CIFAR small-stem; if 7x7, build default resnet and adapt stride/pool
-        if ckpt_conv == (64, 3, 3, 3):
-            # build CIFAR-style resnet
-            tv_resnet = tv_models.resnet18()
-            tv_resnet.conv1 = _torch.nn.Conv2d(3, 64, kernel_size=3, stride=1, padding=1, bias=False)
-            tv_resnet.maxpool = _torch.nn.Identity()
-            tv_resnet.fc = _torch.nn.Linear(tv_resnet.fc.in_features, 100)
-            try:
-                tv_resnet.load_state_dict(sd, strict=False)
-            except Exception as e:
-                print('Warning: partial load into CIFAR resnet18:', e)
-        else:
-            # default resnet (7x7 conv1 expected) - load weights then adapt stride/pool for 32x32 inputs
-            tv_resnet = tv_models.resnet18()
-            tv_resnet.fc = _torch.nn.Linear(tv_resnet.fc.in_features, 100)
-            try:
-                tv_resnet.load_state_dict(sd, strict=False)
-            except Exception as e:
-                print('Warning: partial load into default resnet18:', e)
-            # adapt conv1 stride to 1 and remove maxpool so the network works on 32x32
-            try:
-                old_w = tv_resnet.conv1.weight.data.clone()
-                # create new conv with stride=1 but same kernel size
-                k = tv_resnet.conv1.kernel_size
-                p = tv_resnet.conv1.padding
-                tv_resnet.conv1 = _torch.nn.Conv2d(3, 64, kernel_size=k, stride=1, padding=p, bias=False)
-                # copy weights (if shapes match)
-                if tv_resnet.conv1.weight.data.shape == old_w.shape:
-                    tv_resnet.conv1.weight.data.copy_(old_w)
-                tv_resnet.maxpool = _torch.nn.Identity()
-            except Exception as e:
-                print('Failed to adapt conv1 stride/pool for small inputs:', e)
-
-        # save converted weights
-        _torch.save(tv_resnet.state_dict(), out_path)
-        print(f'Converted checkpoint saved to {out_path}')
-        return out_path
-    # Load original model: prefer a converted torchvision CIFAR resnet checkpoint per-model
-    def load_model_with_fallback(model_id_or_path):
-        import os
-        import torch as _torch
-        print(f"Loading model (preferring converted torchvision): {model_id_or_path}")
-
-        # derive a safe converted filename per model path/id
-        base_name = os.path.basename(model_id_or_path.rstrip('/')).replace('.', '_')
-        converted_path = os.path.join(os.path.dirname(__file__), f"converted_{base_name}.pth")
-
-        # if converted checkpoint not present, attempt conversion
-        if not os.path.exists(converted_path):
-            try:
-                convert_and_save_hf_checkpoint_to_torchvision(model_id_or_path, out_path=converted_path)
-            except Exception as e:
-                print('Conversion failed:', e)
-
-        # try loading the converted torchvision checkpoint
-        if os.path.exists(converted_path):
-            try:
-                tv_resnet = tv_models.resnet18()
-                tv_resnet.conv1 = _torch.nn.Conv2d(3, 64, kernel_size=3, stride=1, padding=1, bias=False)
-                tv_resnet.maxpool = _torch.nn.Identity()
-                tv_resnet.fc = _torch.nn.Linear(tv_resnet.fc.in_features, 100)
-                sd = _torch.load(converted_path, map_location='cpu')
-                tv_resnet.load_state_dict(sd, strict=False)
-
-                class TorchvisionWrapper(_torch.nn.Module):
-                    def __init__(self, tv_model):
-                        super().__init__()
-                        self.tv = tv_model
-
-                    def forward(self, x):
-                        logits = self.tv(x)
-                        from types import SimpleNamespace
-                        return SimpleNamespace(logits=logits)
-
-                model = TorchvisionWrapper(tv_resnet).to(DEVICE)
-                print('Loaded converted torchvision model from', converted_path)
-                return model
-            except Exception as e:
-                print('Failed to load converted torchvision model:', e)
-
-        # fallback: try HF AutoModel loader
-        try:
-            model = AutoModelForImageClassification.from_pretrained(model_id_or_path, ignore_mismatched_sizes=True).to(DEVICE)
-            return model
-        except Exception as e:
-            raise RuntimeError(f'Failed to load model via converted checkpoint and AutoModel: {e}')
 
     original_model = load_model_with_fallback(ORIGINAL_MODEL_NAME)
     hardened_model = load_model_with_fallback(HARDENED_MODEL_PATH)
@@ -269,8 +265,8 @@ def main():
     val_dataset = split_dataset['test'] # Use the test set for final evaluation
 
     transform = get_transform()
-    val_torch_ds = HFDatasetTorch(val_dataset, transform=transform, label_key='fine_label')
-    val_dataloader = torch.utils.data.DataLoader(val_torch_ds, batch_size=64, shuffle=False, num_workers=2)
+    valtorch_ds = HFDatasetTorch(val_dataset, transform=transform, label_key='fine_label')
+    val_dataloader = torch.utils.data.DataLoader(valtorch_ds, batch_size=64, shuffle=False, num_workers=2)
 
     print("\n--- Evaluating Original Model ---")
     acc_orig_clean = evaluate_model(original_model, val_dataloader)
@@ -281,7 +277,7 @@ def main():
     acc_hard_adv = evaluate_model(hardened_model, val_dataloader, attack_fn=generate_adversarial_examples)
 
     print("\n" + "="*30)
-    print(" PERFORMANCE SUMMARY (CIFAR-100)")
+    print("PERFORMANCE SUMMARY (CIFAR-100)")
     print("="*30)
     print(f"Original Model (Clean):\t{acc_orig_clean:.2f}%")
     print(f"Original Model (Attacked):\t{acc_orig_adv:.2f}%")

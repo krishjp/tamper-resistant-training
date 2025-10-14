@@ -2,12 +2,10 @@ import os
 import torch
 import torch.nn.functional as F
 import torchvision.transforms as T
-import torchvision.models as models
 from datasets import load_dataset
 from torch.utils.data import DataLoader
 from tqdm.auto import tqdm
 import timm
-import detectors
 
 
 CIFAR100_MEAN = [0.5071, 0.4867, 0.4408]
