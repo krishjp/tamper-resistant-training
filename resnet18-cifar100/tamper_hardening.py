@@ -56,26 +56,15 @@ def epsilon_normalized(epsilon):
 
 
 def tamper_harden_resnet_cifar100(output_dir='./resnet-18-cifar100-hardened', epochs=1, batch_size=128, lr=0.1):
-    device = 'mps' if torch.backends.mps.is_available() else ('cuda' if torch.cuda.is_available() else 'cpu')
+    if torch.backends.mps.is_available():
+        device = 'mps'
+    elif torch.cuda.is_available():
+        device = 'cuda'
+    elif torch.xpu.is_available():
+        device = 'xpu'
+    else:
+        device = 'cpu'
     print('Using device', device)
-
-    """# build CIFAR-style resnet18
-    model = models.resnet18()
-    model.conv1 = torch.nn.Conv2d(3, 64, kernel_size=3, stride=1, padding=1, bias=False)
-    model.maxpool = torch.nn.Identity()
-    model.fc = torch.nn.Linear(model.fc.in_features, 100)
-    model = model.to(device)
-    # Attempt to initialize from converted HF checkpoint if available
-    converted_hf = os.path.join(os.path.dirname(__file__), 'converted_resnet18_cifar100.pth')
-    if os.path.exists(converted_hf):
-        try:
-            print('Loading converted HF weights from', converted_hf)
-            state = torch.load(converted_hf, map_location='cpu')
-            model.load_state_dict(state, strict=False)
-            print('Loaded converted HF weights (partial allowed).')
-        except Exception as e:
-            print('Failed to load converted HF weights:', e)
-    """
 
     print("Loading pre-trained ResNet-18 for CIFAR-100 from timm...")
     model = timm.create_model("resnet18_cifar100", pretrained=True)

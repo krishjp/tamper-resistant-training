@@ -29,13 +29,26 @@ Hardened Model (Attacked):    29.27%  <-- (Only a 25.20% drop)
   PERFORMANCE SUMMARY (CIFAR-100)
 ==============================
 Original Model (Clean):       69.79%
-Original Model (Attacked):     9.73%  <-- (A 60.06% drop)
+Original Model (Attacked):     9.73%  <-- (60.06% drop)
 ------------------------------
 Hardened Model (Clean):       66.41%
-Hardened Model (Attacked):    15.25%  <-- (A 51.16% drop)
+Hardened Model (Attacked):    15.25%  <-- (51.16% drop)
 ==============================
 ```
 
+### CIFAR-100 (Top 5 accuracy)
+
+```
+==============================
+ PERFORMANCE SUMMARY (CIFAR-100)
+==============================
+Original Model (Clean):      88.79%
+Original Model (Attacked):   25.58%  <-- (63.21% drop)
+------------------------------
+Hardened Model (Clean):      86.84%
+Hardened Model (Attacked):   37.64%  <-- (49.20% drop)
+==============================
+```
 -----
 
 ### Analysis of Results

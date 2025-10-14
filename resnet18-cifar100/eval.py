@@ -10,7 +10,14 @@ ORIGINAL_MODEL_NAME = "edadaltocg/resnet18_cifar100"
 HARDENED_MODEL_PATH = "./resnet-18-cifar100-hardened/final"
 
 # Device selection
-DEVICE = "mps" if torch.backends.mps.is_available() else ("cuda" if torch.cuda.is_available() else "cpu")
+if torch.backends.mps.is_available():
+    DEVICE = 'mps'
+elif torch.cuda.is_available():
+    DEVICE = 'cuda'
+elif torch.xpu.is_available():
+    DEVICE = 'xpu'
+else:
+    DEVICE = 'cpu'
 
 # CIFAR-100 normalization values
 CIFAR100_MEAN = [0.5071, 0.4867, 0.4408]
@@ -88,6 +95,7 @@ def evaluate_model(model, dataloader, attack_fn=None):
     model.eval()
     correct = 0
     total = 0
+    top_n = 5
 
     if not dataloader or len(dataloader) == 0:
         raise ValueError("Warning: Dataloader is empty")
@@ -103,9 +111,11 @@ def evaluate_model(model, dataloader, attack_fn=None):
         with torch.no_grad():
             outputs = model(images)
 
-        predictions = torch.argmax(outputs.logits, dim=1)
+        _, top_n_predictions = torch.topk(outputs.logits, k=top_n, dim=1)
+        labels_reshaped = labels.view(-1, 1)
+        is_in_top_n = top_n_predictions == labels_reshaped
+        correct += is_in_top_n.any(dim=1).sum().item()
         total += labels.size(0)
-        correct += (predictions == labels).sum().item()
 
         progress_bar.set_postfix({"Accuracy": f"{(100 * correct / total):.2f}%"})
 
@@ -254,24 +264,6 @@ def main():
 
     original_model = load_model_with_fallback(ORIGINAL_MODEL_NAME)
     hardened_model = load_model_with_fallback(HARDENED_MODEL_PATH)
-
-    # Small diagnostic: run a few samples through each model and print preds vs labels
-    try:
-        ds = load_dataset('cifar100')
-        sample_ds = ds['test'].select(range(12))
-        transform = get_transform()
-        imgs = [transform(ex['img']).unsqueeze(0).to(DEVICE) for ex in sample_ds]
-        labels = [ex['fine_label'] for ex in sample_ds]
-        print('\nQuick diagnostics (first 12 samples):')
-        for i, img in enumerate(imgs):
-            with torch.no_grad():
-                out_orig = original_model(img)
-                out_hard = hardened_model(img)
-            pred_orig = int(out_orig.logits.argmax(dim=1).cpu().item())
-            pred_hard = int(out_hard.logits.argmax(dim=1).cpu().item())
-            print(f"idx={i} true={labels[i]:3d} orig_pred={pred_orig:3d} hard_pred={pred_hard:3d}")
-    except Exception as e:
-        print('Diagnostics failed:', e)
 
     split_dataset = load_dataset("cifar100")
     val_dataset = split_dataset['test'] # Use the test set for final evaluation

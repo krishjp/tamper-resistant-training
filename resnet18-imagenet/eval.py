@@ -7,8 +7,17 @@ import torch.nn.functional as F
 # Config
 ORIGINAL_MODEL_NAME = "microsoft/resnet-18"
 HARDENED_MODEL_PATH = "./resnet-18-imagenet-hardened/final"
-DEVICE = "xpu" if torch.xpu.is_available() else "cpu"
 EPSILON = 8/255
+
+if torch.backends.mps.is_available():
+    DEVICE = 'mps'
+elif torch.cuda.is_available():
+    DEVICE = 'cuda'
+elif torch.xpu.is_available():
+    DEVICE = 'xpu'
+else:
+    DEVICE = 'cpu'
+    raise ValueError('Using CPU')
 
 # FGSM attack
 def generate_adversarial_examples(model, images, labels):
@@ -34,6 +43,7 @@ def evaluate_model(model, dataloader, attack_fn=None):
     model.eval()
     correct = 0
     total = 0
+    top_n = 5
 
     if not dataloader or len(dataloader) == 0:
         raise ValueError("Warning: Dataloader is empty")
@@ -49,9 +59,15 @@ def evaluate_model(model, dataloader, attack_fn=None):
         with torch.no_grad():
             outputs = model(images)
 
-        predictions = torch.argmax(outputs.logits, dim=1)
+        _, top_n_predictions = torch.topk(outputs.logits, k=top_n, dim=1)
+        labels_reshaped = labels.view(-1, 1)
+        is_in_top_n = top_n_predictions == labels_reshaped
+        correct += is_in_top_n.any(dim=1).sum().item()
         total += labels.size(0)
-        correct += (predictions == labels).sum().item()
+
+        # predictions = torch.argmax(outputs.logits, dim=1)
+        # total += labels.size(0)
+        # correct += (predictions == labels).sum().item()
         
         progress_bar.set_postfix({"Accuracy": f"{(100 * correct / total):.2f}%"})
 
