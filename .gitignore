@@ -8,3 +8,6 @@ tamper_env/
 *resnet-18-imagenet*/
 *resnet-18-cifar100*/
 *venv*/
+#ignore checkpoints
+checkpoints/
+*.pth
