@@ -66,8 +66,8 @@ Follow these steps to set up the environment and run the project.
 **1. Clone the Repository**
 
 ```bash
-git clone <your-repo-url>
-cd <your-repo-name>
+git clone https://github.com/krishjp/tamper-resistant-training.git
+cd tamper-resistant-training
 ```
 
 **2. Create a Virtual Environment**
